@@ -7,12 +7,12 @@ import uuid
 from pathlib import Path
 import aiofiles
 
-from ....db.session import get_db
-from ....api.deps import get_current_user
-from ....models.user import User
-from ....models.screenshot import ScreenshotAnalysis
-from ....ai.factory import AIProviderFactory
-from ....core.config import settings
+from app.db.session import get_db
+from app.api.deps import get_current_user
+from app.models.user import User
+from app.models.screenshot import ScreenshotAnalysis
+from app.ai.factory import AIProviderFactory
+from app.core.config import settings
 
 router = APIRouter()
 
