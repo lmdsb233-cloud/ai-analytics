@@ -4,7 +4,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
 
-from .base import Base
+from app.db.base import Base
 
 
 class ScreenshotAnalysis(Base):
