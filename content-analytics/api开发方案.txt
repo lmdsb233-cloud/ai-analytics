@@ -1,0 +1,97 @@
+你是资深全栈工程师。请在我现有项目（FastAPI + SQLAlchemy + Celery + Vue3）中新增 iFlow Provider，并实现“真实请求”的测试连接。
+
+========================
+项目现状（已知结构）
+========================
+后端关键目录：
+- backend/app/ai/base.py : BaseAIProvider + AIResponse + _parse_structured_response
+- backend/app/ai/factory.py : Provider 工厂
+- backend/app/ai/deepseek.py / openai.py : 现有 Provider（OpenAI 兼容 chat/completions）
+- backend/app/api/v1/settings.py : AI 设置保存 & test-api-key
+- backend/app/models/user_settings.py : 用户设置表（目前有 deepseek_api_key, openai_api_key）
+- backend/app/tasks/ai_tasks.py : Celery 任务中读取 user_settings.ai_provider 并取对应 key
+
+前端关键：
+- frontend/src/views/SettingsView.vue : AI 设置页面（服务商选择 + key 输入 + 测试连接 + 保存）
+- frontend/src/api/settings.ts : settings API 类型
+
+========================
+iFlow API 文档要点（必须按此调用）
+========================
+- Base URL: https://apis.iflow.cn/v1
+- Endpoint: POST /chat/completions
+- Header: Authorization: Bearer <IFLOW_API_KEY>
+- Request body (OpenAI 风格):
+  - model: string
+  - messages: [{role: system|user|assistant, content: string}]
+  - temperature: number (可选)
+  - max_tokens: int (可选)
+  - stream: bool (默认 false)
+
+========================
+业务要求（明确）
+========================
+1) 默认模型固定使用：qwen3-vl-plus
+2) “测试连接”必须真实请求 iFlow 的 /chat/completions 验证（不是仅判断 key 非空）
+3) 不能在日志中打印 api key；报错也不要回显 key
+4) 不做大重构，沿用现有 DeepSeek/OpenAI 的模式扩展即可
+
+========================
+后端改动清单（按顺序完成）
+========================
+A. 新增 Provider 文件
+1) 新建 backend/app/ai/iflow.py
+2) 实现 class IFlowProvider(BaseAIProvider)
+   - DEFAULT_BASE_URL = "https://apis.iflow.cn/v1"
+   - DEFAULT_MODEL = "kimi-k2-0905"
+   - 使用 httpx.AsyncClient 调用 POST {base_url}/chat/completions
+   - 解析响应：choices[0].message.content
+   - tokens：从 usage.prompt_tokens / completion_tokens / total_tokens 取，填到 AIResponse.tokens_used
+   - analyze_post(input_data) 仍然复用 prompts.py 构建 prompt，并复用 _parse_structured_response() 将 AI 输出解析成 summary/strengths/weaknesses/suggestions
+
+B. factory 接入
+- backend/app/ai/factory.py:
+  - 注册 "iflow": IFlowProvider
+  - 如果 create() 里有 if/elif，就加 iflow 分支（不要重构 factory）
+
+C. 用户设置表新增字段（最小改动）
+- backend/app/models/user_settings.py:
+  - 新增 iflow_api_key: Text nullable=True
+  - 新增 iflow_model: String nullable=True（默认 "kimi-k2-0905"；如你觉得不必要可省略，但默认模型必须是 kimi-k2-0905）
+- 生成 Alembic migration（或项目现有迁移方式）
+
+D. settings schema / API
+- backend/app/schemas/settings.py:
+  - SettingsUpdate 增加 iflow_api_key, iflow_model（可选）
+  - SettingsResponse 增加 has_iflow_key: bool 和当前 provider/model 展示所需字段
+- backend/app/api/v1/settings.py:
+  - 保存/读取 iFlow 字段
+  - 修改 POST /test-api-key：当 provider=iflow 时
+    - 用用户传入的 key（或已保存 key）发起真实请求：
+      model="kimi-k2-0905", messages=[{"role":"user","content":"ping"}], max_tokens=16, temperature=0, stream=false
+    - 200 且能解析 choices[0].message.content => success
+    - 否则返回明确错误信息（区分 401/403/429/timeout/5xx）
+
+E. Celery 调用链路
+- backend/app/tasks/ai_tasks.py:
+  - provider_name == "iflow" 时读取 user_settings.iflow_api_key
+  - 并创建 provider：get_ai_provider("iflow", api_key, model可从user_settings.iflow_model读取否则默认)
+
+========================
+前端改动清单
+========================
+1) SettingsView.vue
+- provider 选项新增 iFlow
+- 展示 iFlow API Key 输入框
+- （可选）展示 model 输入框（默认 kimi-k2-0905，可隐藏高级设置）
+- “测试连接”调用后端 test-api-key，展示成功/失败 toast
+
+2) settings.ts
+- 补充 iflow 字段与类型（iflow_api_key/has_iflow_key/iflow_model 等）
+
+========================
+交付要求
+========================
+- 提供可运行代码（不是伪代码）
+- 列出改动的文件清单与关键 diff
+

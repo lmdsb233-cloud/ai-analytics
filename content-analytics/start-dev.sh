@@ -1,0 +1,42 @@
+#!/bin/bash
+
+echo "===================================="
+echo "内容数据分析系统 - 开发环境启动脚本"
+echo "===================================="
+
+echo ""
+echo "[1/3] 启动 Docker 服务 (PostgreSQL + Redis)..."
+docker-compose -f docker-compose.dev.yml up -d
+
+echo ""
+echo "[2/3] 等待数据库启动..."
+sleep 5
+
+echo ""
+echo "===================================="
+echo "Docker 服务已启动！"
+echo "===================================="
+echo ""
+echo "PostgreSQL: localhost:5432"
+echo "Redis: localhost:6379"
+echo ""
+echo "接下来请手动执行:"
+echo ""
+echo "1. 后端启动:"
+echo "   cd backend"
+echo "   pip install -r requirements.txt"
+echo "   cp .env.example .env  # 然后编辑配置"
+echo "   python scripts/init_db.py"
+echo "   python scripts/create_user.py"
+echo "   uvicorn app.main:app --reload"
+echo ""
+echo "2. Celery Worker (新终端):"
+echo "   cd backend"
+echo "   celery -A app.tasks.celery_app worker --loglevel=info"
+echo ""
+echo "3. 前端启动 (新终端):"
+echo "   cd frontend"
+echo "   npm install"
+echo "   npm run dev"
+echo ""
+echo "===================================="
