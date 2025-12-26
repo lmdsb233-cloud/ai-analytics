@@ -4,14 +4,16 @@ from .post import Post
 from .analysis import Analysis, AnalysisResult, AIOutput
 from .export import Export
 from .user_settings import UserSettings
+from .screenshot import ScreenshotAnalysis
 
 __all__ = [
     "User",
-    "Dataset", 
+    "Dataset",
     "Post",
     "Analysis",
     "AnalysisResult",
     "AIOutput",
     "Export",
-    "UserSettings"
+    "UserSettings",
+    "ScreenshotAnalysis"
 ]

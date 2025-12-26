@@ -27,8 +27,12 @@
             <el-icon><Download /></el-icon>
             <span>导出报告</span>
           </el-menu-item>
+          <el-menu-item index="/screenshot">
+            <el-icon><Picture /></el-icon>
+            <span>截图分析</span>
+          </el-menu-item>
         </el-menu>
-        
+
         <div class="menu-label">系统设置</div>
         <el-menu
           :default-active="activeMenu"
@@ -81,7 +85,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { FolderOpened, DataAnalysis, Download, Setting, SwitchButton } from '@element-plus/icons-vue'
+import { FolderOpened, DataAnalysis, Download, Setting, SwitchButton, Picture } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -93,6 +97,7 @@ const routeNames: Record<string, string> = {
   '/datasets': '数据集管理',
   '/analyses': '分析任务',
   '/exports': '导出报告',
+  '/screenshot': '截图分析',
   '/settings': 'AI设置'
 }
 

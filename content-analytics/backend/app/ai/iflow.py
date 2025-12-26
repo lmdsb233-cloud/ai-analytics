@@ -93,7 +93,82 @@ class IFlowProvider(BaseAIProvider):
                 model_name=self._model,
                 tokens_used=tokens_used
             )
-    
+
+    async def analyze_with_image(self, image_base64: str) -> AIResponse:
+        """使用图片进行分析（多模态 AI）"""
+        system_prompt = """你是一个专业的数据分析专家。
+请从截图中提取所有数据指标，并分析表现。
+
+请严格按照以下JSON格式输出：
+{
+    "summary": "一句话总结",
+    "strengths": ["优点1", "优点2"],
+    "weaknesses": ["问题1", "问题2"],
+    "suggestions": ["建议1", "建议2", "建议3"]
+}
+"""
+
+        messages = [
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "请分析这个数据截图，提取所有指标并分析表现"
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/png;base64,{image_base64}"
+                        }
+                    }
+                ]
+            }
+        ]
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": self._model,
+                    "messages": messages,
+                    "temperature": 0.7,
+                    "max_tokens": 2000,
+                    "stream": False
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+
+            raw_response = data["choices"][0]["message"]["content"]
+            parsed = self._parse_structured_response(raw_response)
+
+            tokens_used = None
+            if "usage" in data:
+                tokens_used = {
+                    "prompt_tokens": data["usage"].get("prompt_tokens", 0),
+                    "completion_tokens": data["usage"].get("completion_tokens", 0),
+                    "total_tokens": data["usage"].get("total_tokens", 0)
+                }
+
+            return AIResponse(
+                summary=parsed.get("summary", ""),
+                strengths=parsed.get("strengths", []),
+                weaknesses=parsed.get("weaknesses", []),
+                suggestions=parsed.get("suggestions", []),
+                raw_response=raw_response,
+                model_name=self._model,
+                tokens_used=tokens_used
+            )
+
     @classmethod
     async def test_connection(cls, api_key: str, base_url: Optional[str] = None, model: Optional[str] = None) -> Dict[str, Any]:
         """测试API连接（真实请求）"""

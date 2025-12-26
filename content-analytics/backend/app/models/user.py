@@ -21,3 +21,4 @@ class User(Base):
     datasets = relationship("Dataset", back_populates="user", cascade="all, delete-orphan")
     analyses = relationship("Analysis", back_populates="user", cascade="all, delete-orphan")
     exports = relationship("Export", back_populates="user", cascade="all, delete-orphan")
+    screenshot_analyses = relationship("ScreenshotAnalysis", back_populates="user", cascade="all, delete-orphan")
