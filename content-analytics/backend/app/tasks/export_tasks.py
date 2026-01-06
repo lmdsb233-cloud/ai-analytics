@@ -9,6 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.drawing.image import Image as XLImage
+import httpx
+from io import BytesIO
+from PIL import Image as PILImage
 
 from app.tasks.celery_app import celery_app
 from app.db.session import async_session_maker, create_thread_session_maker
@@ -68,15 +72,17 @@ async def _run_export(export_id: str, use_thread_session: bool = False):
                 if not analysis:
                     raise Exception("分析任务不存在")
                 
-                # 获取分析结果
+                # 获取分析结果（按原始数据集顺序排序）
+                from app.models.post import Post
                 results = await db.execute(
                     select(AnalysisResult)
                     .options(
                         selectinload(AnalysisResult.post),
                         selectinload(AnalysisResult.ai_output)
                     )
+                    .join(Post, AnalysisResult.post_id == Post.id)
                     .where(AnalysisResult.analysis_id == analysis.id)
-                    .order_by(AnalysisResult.created_at)
+                    .order_by(Post.created_at.asc())
                 )
                 analysis_results = results.scalars().all()
                 
@@ -86,7 +92,8 @@ async def _run_export(export_id: str, use_thread_session: bool = False):
                 elif export.format == ExportFormat.JSON:
                     file_path = await _export_to_json(analysis, analysis_results, export_id)
                 else:
-                    raise Exception(f"暂不支持 {export.format.value} 格式导出")
+                    format_value = getattr(export.format, "value", export.format)
+                    raise Exception(f"暂不支持 {format_value} 格式导出")
                 
                 # 更新导出记录
                 export.file_path = file_path
@@ -125,30 +132,33 @@ async def _export_to_excel(analysis: Analysis, results: list, export_id: str) ->
         bottom=Side(style='thin')
     )
     
-    # 写入标题行
+    # 写入标题行（与笔记详情页面一致）
     headers = [
         "序号",
         "笔记ID",
+        "笔记链接",
+        "发文时间",
         "内容形式",
         "发文类型",
         "素材来源",
         "款式信息",
-        "发布时间",
-        "7天阅读/播放",
-        "7天互动",
-        "7天好物访问",
-        "7天好物想要",
-        "14天阅读/播放",
-        "14天互动",
-        "14天好物访问",
-        "14天好物想要",
+        "标题",
+        "正文",
+        "封面图片",
         "表现",
         "问题指标",
         "亮点指标",
-        "对比均值",
-        "AI总结",
-        "优势",
-        "不足",
+        "7天阅读",
+        "14天阅读",
+        "7天互动",
+        "14天互动",
+        "7天好物访问",
+        "14天好物访问",
+        "7天好物想要",
+        "14天好物想要",
+        "AI一句话总结",
+        "优点",
+        "问题",
         "优化建议"
     ]
     
@@ -161,54 +171,91 @@ async def _export_to_excel(analysis: Analysis, results: list, export_id: str) ->
     
     # 写入数据
     for row_idx, ar in enumerate(results, 2):
-        # 基础数据
         post = getattr(ar, "post", None)
-        result_data = ar.result_data or {}
-        compare_to_avg = result_data.get("compare_to_avg") or {}
-        compare_text = "；".join([f"{k}:{v}" for k, v in compare_to_avg.items()]) if isinstance(compare_to_avg, dict) else ""
-        problem_metrics = result_data.get("problem_metrics") or []
-        highlight_metrics = result_data.get("highlight_metrics") or []
-
+        
+        # 序号
         ws.cell(row=row_idx, column=1, value=row_idx - 1).border = thin_border
+        # 笔记ID
         ws.cell(row=row_idx, column=2, value=(post.data_id if post else "")).border = thin_border
-        ws.cell(row=row_idx, column=3, value=(post.content_type if post else "")).border = thin_border
-        ws.cell(row=row_idx, column=4, value=(post.post_type if post else "")).border = thin_border
-        ws.cell(row=row_idx, column=5, value=(post.source if post else "")).border = thin_border
-        ws.cell(row=row_idx, column=6, value=(post.style_info if post else "")).border = thin_border
-        ws.cell(row=row_idx, column=7, value=(str(post.publish_time) if post and post.publish_time else "")).border = thin_border
+        # 笔记链接
+        ws.cell(row=row_idx, column=3, value=(post.publish_link if post else "")).border = thin_border
+        # 发文时间
+        ws.cell(row=row_idx, column=4, value=(str(post.publish_time) if post and post.publish_time else "")).border = thin_border
+        # 内容形式
+        ws.cell(row=row_idx, column=5, value=(post.content_type if post else "")).border = thin_border
+        # 发文类型
+        ws.cell(row=row_idx, column=6, value=(post.post_type if post else "")).border = thin_border
+        # 素材来源
+        ws.cell(row=row_idx, column=7, value=(post.source if post else "")).border = thin_border
+        # 款式信息
+        ws.cell(row=row_idx, column=8, value=(post.style_info if post else "")).border = thin_border
+        # 标题
+        ws.cell(row=row_idx, column=9, value=(post.content_title if post else "")).border = thin_border
+        # 正文
+        ws.cell(row=row_idx, column=10, value=(post.content_text if post else "")).border = thin_border
+        
+        # 封面图片（嵌入缩略图）
+        ws.cell(row=row_idx, column=11, value="").border = thin_border
+        if post and post.cover_image:
+            try:
+                # 下载图片
+                with httpx.Client(timeout=10.0) as client:
+                    resp = client.get(post.cover_image)
+                    if resp.status_code == 200:
+                        img_data = BytesIO(resp.content)
+                        pil_img = PILImage.open(img_data)
+                        # 转换为RGB（处理webp等格式）
+                        if pil_img.mode in ('RGBA', 'P'):
+                            pil_img = pil_img.convert('RGB')
+                        # 缩放到合适大小（宽度200像素，更清晰）
+                        ratio = 200 / pil_img.width
+                        new_size = (200, int(pil_img.height * ratio))
+                        pil_img = pil_img.resize(new_size, PILImage.Resampling.LANCZOS)
+                        # 保存到内存
+                        img_buffer = BytesIO()
+                        pil_img.save(img_buffer, format='PNG')
+                        img_buffer.seek(0)
+                        # 插入到Excel
+                        xl_img = XLImage(img_buffer)
+                        ws.add_image(xl_img, f"K{row_idx}")
+                        # 设置行高以适应图片
+                        ws.row_dimensions[row_idx].height = new_size[1] * 0.75
+            except Exception as e:
+                # 图片下载失败，写入URL
+                ws.cell(row=row_idx, column=11, value=post.cover_image)
+        
+        # 表现、问题指标、亮点指标
+        result_data = ar.result_data or {}
+        ws.cell(row=row_idx, column=12, value=(ar.performance or "")).border = thin_border
+        ws.cell(row=row_idx, column=13, value="、".join(result_data.get('problem_metrics', []))).border = thin_border
+        ws.cell(row=row_idx, column=14, value="、".join(result_data.get('highlight_metrics', []))).border = thin_border
         
         # 数据指标
-        ws.cell(row=row_idx, column=8, value=(post.read_7d if post else None)).border = thin_border
-        ws.cell(row=row_idx, column=9, value=(post.interact_7d if post else None)).border = thin_border
-        ws.cell(row=row_idx, column=10, value=(post.visit_7d if post else None)).border = thin_border
-        ws.cell(row=row_idx, column=11, value=(post.want_7d if post else None)).border = thin_border
-        ws.cell(row=row_idx, column=12, value=(post.read_14d if post else None)).border = thin_border
-        ws.cell(row=row_idx, column=13, value=(post.interact_14d if post else None)).border = thin_border
-        ws.cell(row=row_idx, column=14, value=(post.visit_14d if post else None)).border = thin_border
-        ws.cell(row=row_idx, column=15, value=(post.want_14d if post else None)).border = thin_border
-
-        # 计算指标
-        ws.cell(row=row_idx, column=16, value=(ar.performance or "")).border = thin_border
-        ws.cell(row=row_idx, column=17, value=("、".join(problem_metrics) if isinstance(problem_metrics, list) else "")).border = thin_border
-        ws.cell(row=row_idx, column=18, value=("、".join(highlight_metrics) if isinstance(highlight_metrics, list) else "")).border = thin_border
-        ws.cell(row=row_idx, column=19, value=compare_text).border = thin_border
+        ws.cell(row=row_idx, column=15, value=(post.read_7d if post else None)).border = thin_border
+        ws.cell(row=row_idx, column=16, value=(post.read_14d if post else None)).border = thin_border
+        ws.cell(row=row_idx, column=17, value=(post.interact_7d if post else None)).border = thin_border
+        ws.cell(row=row_idx, column=18, value=(post.interact_14d if post else None)).border = thin_border
+        ws.cell(row=row_idx, column=19, value=(post.visit_7d if post else None)).border = thin_border
+        ws.cell(row=row_idx, column=20, value=(post.visit_14d if post else None)).border = thin_border
+        ws.cell(row=row_idx, column=21, value=(post.want_7d if post else None)).border = thin_border
+        ws.cell(row=row_idx, column=22, value=(post.want_14d if post else None)).border = thin_border
         
         # AI分析结果
         if ar.ai_output:
-            ws.cell(row=row_idx, column=20, value=ar.ai_output.summary or "").border = thin_border
-            ws.cell(row=row_idx, column=21, value="\n".join(ar.ai_output.strengths or [])).border = thin_border
-            ws.cell(row=row_idx, column=22, value="\n".join(ar.ai_output.weaknesses or [])).border = thin_border
-            ws.cell(row=row_idx, column=23, value="\n".join(ar.ai_output.suggestions or [])).border = thin_border
+            ws.cell(row=row_idx, column=23, value=ar.ai_output.summary or "").border = thin_border
+            ws.cell(row=row_idx, column=24, value="\n".join(ar.ai_output.strengths or [])).border = thin_border
+            ws.cell(row=row_idx, column=25, value="\n".join(ar.ai_output.weaknesses or [])).border = thin_border
+            ws.cell(row=row_idx, column=26, value="\n".join(ar.ai_output.suggestions or [])).border = thin_border
         else:
-            for col in range(20, 24):
-                ws.cell(row=row_idx, column=col, value="未分析").border = thin_border
+            for col in range(23, 27):
+                ws.cell(row=row_idx, column=col, value="").border = thin_border
         
         # 设置对齐方式
-        for col in range(1, 24):
+        for col in range(1, 27):
             ws.cell(row=row_idx, column=col).alignment = cell_alignment
     
-    # 设置列宽
-    column_widths = [6, 14, 10, 10, 10, 20, 18, 12, 12, 12, 12, 12, 12, 12, 12, 8, 18, 18, 24, 30, 24, 24, 30]
+    # 设置列宽（封面图片列加宽到30适应200px图片，新增表现/问题指标/亮点指标列）
+    column_widths = [6, 24, 40, 18, 10, 10, 12, 20, 40, 50, 30, 10, 25, 25, 10, 10, 10, 10, 12, 12, 12, 12, 40, 30, 30, 40]
     for col, width in enumerate(column_widths, 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = width
     
@@ -235,7 +282,7 @@ async def _export_to_json(analysis: Analysis, results: list, export_id: str) -> 
             "id": str(analysis.id),
             "name": analysis.name,
             "created_at": str(analysis.created_at),
-            "status": analysis.status.value
+            "status": getattr(analysis.status, "value", analysis.status)
         },
         "results": []
     }

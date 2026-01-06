@@ -28,7 +28,12 @@ class AnomalyDetector:
         self.bottom_threshold = bottom_threshold
     
     def detect_anomalies(self, row: pd.Series) -> Dict[str, Any]:
-        """检测单行数据的异常"""
+        """检测单行数据的异常
+        
+        使用分位数判断（更合理）：
+        - 亮点：高于75分位数，且Q75>0
+        - 问题：低于25分位数，或者值=0但中位数>0（说明大部分都有值，0是异常差）
+        """
         highlights = []  # 表现突出的指标
         problems = []    # 表现较差的指标
         
@@ -37,16 +42,20 @@ class AnomalyDetector:
                 continue
             
             value = row[metric]
-            q90 = stat.get('q90', stat['max'])
-            q10 = stat.get('q10', stat['min'])
+            median = stat.get('median', 0)
+            q75 = stat.get('q75', median)
+            q25 = stat.get('q25', median)
             
             metric_name = self.METRIC_NAMES.get(metric, metric)
             
-            # 高于90分位数
-            if value >= q90:
+            # 高于75分位数为亮点
+            if value > q75 and q75 > 0:
                 highlights.append(metric_name)
-            # 低于10分位数
-            elif value <= q10:
+            # 低于25分位数为问题
+            elif value < q25 and median >= 1:
+                problems.append(metric_name)
+            # 特殊情况：值=0但中位数>0，说明0是异常差的表现
+            elif value == 0 and median > 0:
                 problems.append(metric_name)
         
         return {
@@ -55,17 +64,36 @@ class AnomalyDetector:
         }
     
     def determine_performance(
-        self, 
+        self,
         row: pd.Series,
         primary_metrics: List[str] = None
     ) -> str:
-        """判断整体表现"""
+        """判断整体表现
+        
+        综合考虑阅读、互动、转化指标
+        """
         if primary_metrics is None:
-            primary_metrics = ['read_7d', 'interact_7d']
+            # 综合考虑 7 天 + 14 天指标，按重要性加权
+            primary_metrics = [
+                ('read_7d', 1.0),
+                ('read_14d', 1.0),
+                ('interact_7d', 1.0),
+                ('interact_14d', 1.0),
+                ('visit_7d', 0.8),
+                ('visit_14d', 0.8),
+                ('want_7d', 0.8),
+                ('want_14d', 0.8),
+            ]
         
-        scores = []
+        weighted_scores = []
+        total_weight = 0
         
-        for metric in primary_metrics:
+        for metric_info in primary_metrics:
+            if isinstance(metric_info, tuple):
+                metric, weight = metric_info
+            else:
+                metric, weight = metric_info, 1.0
+                
             if metric not in self.stats or metric not in row:
                 continue
             if pd.isna(row[metric]):
@@ -80,16 +108,17 @@ class AnomalyDetector:
             
             # 计算相对于中位数的比值
             ratio = value / median
-            scores.append(ratio)
+            weighted_scores.append(ratio * weight)
+            total_weight += weight
         
-        if not scores:
-            return "无法判断"
+        if not weighted_scores or total_weight == 0:
+            return "正常"
         
-        avg_score = np.mean(scores)
+        avg_score = sum(weighted_scores) / total_weight
         
-        if avg_score >= 1.5:
+        if avg_score >= 1.3:
             return "优秀"
-        elif avg_score >= 1.0:
+        elif avg_score >= 0.9:
             return "正常"
         elif avg_score >= 0.5:
             return "偏低"

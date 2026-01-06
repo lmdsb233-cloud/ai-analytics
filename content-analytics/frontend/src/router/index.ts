@@ -57,6 +57,11 @@ const routes: RouteRecordRaw[] = [
         path: 'settings',
         name: 'Settings',
         component: () => import('@/views/SettingsView.vue')
+      },
+      {
+        path: 'chat/:id',
+        name: 'Chat',
+        component: () => import('@/views/ChatView.vue')
       }
     ]
   }

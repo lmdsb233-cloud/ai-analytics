@@ -14,6 +14,7 @@ class DatasetResponse(BaseModel):
     original_filename: str
     status: str
     row_count: int
+    progress: Optional[str] = None
     error_message: Optional[str] = None
     created_at: datetime
     updated_at: datetime

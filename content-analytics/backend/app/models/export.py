@@ -32,8 +32,8 @@ class Export(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     
     file_path = Column(String(500), nullable=True)
-    format = Column(Enum(ExportFormat), default=ExportFormat.EXCEL)
-    status = Column(Enum(ExportStatus), default=ExportStatus.PENDING)
+    format = Column(Enum(ExportFormat, native_enum=False), default=ExportFormat.EXCEL)
+    status = Column(Enum(ExportStatus, native_enum=False), default=ExportStatus.PENDING)
     error_message = Column(String(1000), nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)

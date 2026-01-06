@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
 
@@ -41,6 +41,12 @@ class PostDetail(BaseModel):
     interact_14d: Optional[float] = None
     visit_14d: Optional[float] = None
     want_14d: Optional[float] = None
+
+    # 补充的图文信息
+    content_title: Optional[str] = None
+    content_text: Optional[str] = None
+    cover_image: Optional[str] = None
+    image_urls: Optional[List[str]] = None
     
     created_at: datetime
 

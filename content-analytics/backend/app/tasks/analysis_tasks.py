@@ -60,9 +60,9 @@ async def _run_analysis(analysis_id: str, use_thread_session: bool = False):
 
                 # 构建DataFrame
                 data = []
-                post_map = {}
+                posts_by_index = []
                 for post in posts:
-                    post_map[post.data_id] = post
+                    posts_by_index.append(post)
                     data.append({
                         'data_id': post.data_id,
                         'content_type': post.content_type,
@@ -88,8 +88,14 @@ async def _run_analysis(analysis_id: str, use_thread_session: bool = False):
                 # 保存分析结果
                 total = len(analysis_results)
                 for idx, result_data in enumerate(analysis_results):
-                    data_id = result_data.get('data_id')
-                    post = post_map.get(data_id)
+                    post = None
+                    row_index = result_data.get('row_index')
+                    if isinstance(row_index, int) and 0 <= row_index < len(posts_by_index):
+                        post = posts_by_index[row_index]
+                    if not post:
+                        data_id = result_data.get('data_id')
+                        if data_id:
+                            post = next((p for p in posts_by_index if p.data_id == data_id), None)
 
                     if post:
                         analysis_result = AnalysisResult(

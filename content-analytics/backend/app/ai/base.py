@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, AsyncGenerator
 from dataclasses import dataclass
 
 
@@ -37,6 +37,45 @@ class BaseAIProvider(ABC):
     async def analyze_post(self, input_data: Dict[str, Any]) -> AIResponse:
         """分析单篇笔记"""
         pass
+    
+    async def chat_stream(
+        self, 
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2000
+    ) -> AsyncGenerator[str, None]:
+        """流式聊天接口（默认实现，子类可覆盖）
+        
+        Args:
+            messages: 消息列表，格式 [{"role": "user", "content": "..."}, ...]
+            system_prompt: 系统提示词
+            temperature: 温度参数
+            max_tokens: 最大token数
+        
+        Yields:
+            字符串片段（token）
+        """
+        # 默认实现：调用非流式接口并逐字符返回
+        # 子类应该覆盖此方法以实现真正的流式响应
+        full_response = await self.chat(messages, system_prompt, temperature, max_tokens)
+        for char in full_response:
+            yield char
+    
+    async def chat(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 2000
+    ) -> str:
+        """非流式聊天接口（默认实现，子类可覆盖）"""
+        # 默认实现：使用generate方法
+        # 子类应该覆盖此方法
+        if messages:
+            user_message = messages[-1].get("content", "")
+            return await self.generate(user_message)
+        return ""
     
     def _parse_structured_response(self, response: str) -> Dict[str, Any]:
         """解析结构化响应"""

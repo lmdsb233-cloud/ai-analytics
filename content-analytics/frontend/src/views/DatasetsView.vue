@@ -35,10 +35,13 @@
     <div class="content-card">
       <div class="card-header">
         <h3>📁 数据集列表</h3>
-        <el-button type="primary" @click="showUploadDialog = true">
-          <el-icon><Upload /></el-icon>
-          上传数据集
-        </el-button>
+        <div class="actions">
+          <el-button @click="loadData" :loading="datasetStore.loading">刷新</el-button>
+          <el-button type="primary" @click="showUploadDialog = true">
+            <el-icon><Upload /></el-icon>
+            上传数据集
+          </el-button>
+        </div>
       </div>
       
       <el-table :data="datasetStore.datasets" v-loading="datasetStore.loading">
@@ -56,11 +59,31 @@
             <span class="count-badge">{{ row.row_count || '-' }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="120" align="center">
+        <el-table-column prop="status" label="状态" width="180" align="center">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" effect="light">
-              {{ getStatusText(row.status) }}
-            </el-tag>
+            <div class="status-cell">
+              <el-tooltip 
+                :content="row.error_message" 
+                :disabled="row.status !== 'failed' || !row.error_message"
+                placement="top"
+              >
+                <el-tag :type="getStatusType(row.status)" effect="plain" class="status-tag">
+                  <el-icon class="status-icon" :class="{ 'is-loading': row.status === 'processing' }">
+                    <component :is="getStatusIcon(row.status)" />
+                  </el-icon>
+                  <span class="status-text">{{ getStatusText(row.status, row.progress) }}</span>
+                </el-tag>
+              </el-tooltip>
+              <div v-if="row.status === 'completed'" class="status-detail">
+                ✓ 数据解析完成
+              </div>
+              <div v-else-if="row.status === 'processing'" class="status-detail processing">
+                正在提取笔记图文...
+              </div>
+              <div v-else-if="row.status === 'pending'" class="status-detail">
+                排队等待中
+              </div>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="上传时间" width="180">
@@ -73,10 +96,10 @@
             <el-button 
               type="primary" 
               size="small"
-              @click="handleCreateAnalysis(row)" 
+              @click="handleViewAnalysis(row)"
               :disabled="row.status !== 'completed'"
             >
-              开始分析
+              {{ row.status === 'completed' ? '查看分析' : '解析中...' }}
             </el-button>
             <el-button type="danger" size="small" plain @click="handleDelete(row)">删除</el-button>
           </template>
@@ -137,10 +160,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, reactive, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type UploadInstance, type UploadFile } from 'element-plus'
-import { Upload, FolderOpened, Check, Loading, InfoFilled, UploadFilled } from '@element-plus/icons-vue'
+import { Upload, FolderOpened, Check, Loading, InfoFilled, UploadFilled, Clock, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { useDatasetStore } from '@/stores/dataset'
 import { useAnalysisStore } from '@/stores/analysis'
 import type { Dataset } from '@/types'
@@ -207,14 +230,8 @@ const handleUpload = async () => {
   }
 }
 
-const handleCreateAnalysis = async (dataset: Dataset) => {
-  try {
-    const analysis = await analysisStore.createAnalysis(dataset.id, `${dataset.name}的分析`)
-    ElMessage.success('分析任务创建成功')
-    router.push(`/analyses/${analysis.id}/results`)
-  } catch (error) {
-    // Error handled by interceptor
-  }
+const handleViewAnalysis = async (dataset: Dataset) => {
+  router.push('/analyses')
 }
 
 const handleDelete = (dataset: Dataset) => {
@@ -226,8 +243,8 @@ const handleDelete = (dataset: Dataset) => {
   }).catch(() => {})
 }
 
-const getStatusType = (status: string) => {
-  const map: Record<string, string> = {
+const getStatusType = (status: string): 'info' | 'warning' | 'success' | 'danger' => {
+  const map: Record<string, 'info' | 'warning' | 'success' | 'danger'> = {
     pending: 'info',
     processing: 'warning',
     completed: 'success',
@@ -236,12 +253,28 @@ const getStatusType = (status: string) => {
   return map[status] || 'info'
 }
 
-const getStatusText = (status: string) => {
+const getStatusIcon = (status: string) => {
+  const map: Record<string, any> = {
+    pending: Clock,
+    processing: Loading,
+    completed: CircleCheck,
+    failed: CircleClose
+  }
+  return map[status] || Clock
+}
+
+const getStatusText = (status: string, progress?: string | null) => {
+  if (status === 'processing' && progress) {
+    return `解析中 (${progress})`
+  }
+  if (status === 'pending') {
+    return '等待解析'
+  }
   const map: Record<string, string> = {
-    pending: '等待处理',
-    processing: '处理中',
+    pending: '等待解析',
+    processing: '解析中...',
     completed: '已完成',
-    failed: '失败'
+    failed: '解析失败'
   }
   return map[status] || status
 }
@@ -249,6 +282,42 @@ const getStatusText = (status: string) => {
 const formatDate = (date: string) => {
   return dayjs(date).format('YYYY-MM-DD HH:mm:ss')
 }
+
+// 自动刷新：当有处理中的数据集时，每3秒刷新一次
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+const startAutoRefresh = () => {
+  if (refreshTimer) return
+  refreshTimer = setInterval(() => {
+    const hasProcessing = datasetStore.datasets.some(d => d.status === 'processing' || d.status === 'pending')
+    if (hasProcessing) {
+      datasetStore.fetchDatasets(currentPage.value, pageSize.value)
+    } else {
+      stopAutoRefresh()
+    }
+  }, 3000)
+}
+
+const stopAutoRefresh = () => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+// 监听数据变化，启动/停止自动刷新
+watch(() => datasetStore.datasets, (datasets) => {
+  const hasProcessing = datasets.some(d => d.status === 'processing' || d.status === 'pending')
+  if (hasProcessing) {
+    startAutoRefresh()
+  } else {
+    stopAutoRefresh()
+  }
+}, { immediate: true })
+
+onUnmounted(() => {
+  stopAutoRefresh()
+})
 </script>
 
 <style lang="scss" scoped>
@@ -338,11 +407,51 @@ const formatDate = (date: string) => {
     font-size: 13px;
   }
   
+  .status-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  
+  .status-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-weight: 500;
+    
+    .status-icon {
+      font-size: 14px;
+      
+      &.is-loading {
+        animation: rotating 1.5s linear infinite;
+      }
+    }
+    
+    .status-text {
+      font-size: 13px;
+    }
+  }
+  
+  .status-detail {
+    font-size: 11px;
+    color: #67c23a;
+    
+    &.processing {
+      color: #e6a23c;
+    }
+  }
+  
   .pagination {
     margin-top: 20px;
     display: flex;
     justify-content: flex-end;
   }
+}
+
+@keyframes rotating {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .upload-tip {

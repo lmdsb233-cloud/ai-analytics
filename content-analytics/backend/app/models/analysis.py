@@ -32,7 +32,7 @@ class Analysis(Base):
     dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     name = Column(String(255), nullable=True)
-    status = Column(Enum(AnalysisStatus), default=AnalysisStatus.PENDING)
+    status = Column(Enum(AnalysisStatus, native_enum=False), default=AnalysisStatus.PENDING)
     config = Column(JSON, nullable=True)  # 分析配置
     progress = Column(String(50), default="0%")
     error_message = Column(String(1000), nullable=True)
@@ -92,3 +92,31 @@ class AIOutput(Base):
 
     # Relationships
     analysis_result = relationship("AnalysisResult", back_populates="ai_output")
+    histories = relationship("AIOutputHistory", back_populates="ai_output", cascade="all, delete-orphan")
+
+
+class AIOutputHistory(Base):
+    __tablename__ = "ai_output_histories"
+
+    __table_args__ = (
+        Index("ix_ai_output_histories_ai_output_id_created_at", "ai_output_id", "created_at"),
+        Index("ix_ai_output_histories_analysis_result_id", "analysis_result_id"),
+        Index("ix_ai_output_histories_user_id", "user_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ai_output_id = Column(UUID(as_uuid=True), ForeignKey("ai_outputs.id"), nullable=False)
+    analysis_result_id = Column(UUID(as_uuid=True), ForeignKey("analysis_results.id"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+
+    action = Column(String(20), nullable=False, default="update")
+    summary = Column(Text, nullable=True)
+    strengths = Column(JSON, nullable=True)
+    weaknesses = Column(JSON, nullable=True)
+    suggestions = Column(JSON, nullable=True)
+    model_name = Column(String(50), nullable=True)
+    raw_response = Column(Text, nullable=True)
+    tokens_used = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    ai_output = relationship("AIOutput", back_populates="histories")

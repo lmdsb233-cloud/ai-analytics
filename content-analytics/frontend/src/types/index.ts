@@ -32,6 +32,7 @@ export interface Dataset {
   original_filename: string
   status: 'pending' | 'processing' | 'completed' | 'failed'
   row_count: number
+  progress?: string | null
   error_message?: string
   created_at: string
   updated_at: string
@@ -56,6 +57,10 @@ export interface Post {
   interact_14d?: number
   visit_14d?: number
   want_14d?: number
+  content_title?: string
+  content_text?: string
+  cover_image?: string
+  image_urls?: string[]
   created_at: string
 }
 
@@ -66,6 +71,7 @@ export interface Analysis {
   name?: string
   status: 'pending' | 'analyzing' | 'ai_processing' | 'completed' | 'failed'
   progress: string
+  ai_status?: 'not_started' | 'processing' | 'partial' | 'completed'
   error_message?: string
   created_at: string
   completed_at?: string
@@ -94,6 +100,20 @@ export interface AnalysisResult {
 export interface AIOutput {
   id: string
   analysis_result_id: string
+  summary?: string
+  strengths?: string[]
+  weaknesses?: string[]
+  suggestions?: string[]
+  model_name?: string
+  created_at: string
+}
+
+export interface AIOutputHistory {
+  id: string
+  ai_output_id: string
+  analysis_result_id: string
+  user_id: string
+  action: string
   summary?: string
   strengths?: string[]
   weaknesses?: string[]

@@ -94,6 +94,11 @@ async def list_datasets(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    if page < 1 or page_size < 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="分页参数不合法"
+        )
     # 查询总数（使用COUNT优化，不加载所有记录）
     count_result = await db.execute(
         select(func.count(Dataset.id)).where(Dataset.user_id == current_user.id)

@@ -349,9 +349,9 @@ npm run dev
 ```
 
 #### 5. 访问系统
-- 前端: http://localhost:3000
-- 后端API: http://localhost:8000
-- API文档: http://localhost:8000/api/docs
+- 前端: http://localhost:5173
+- 后端API: http://localhost:8088
+- API文档: http://localhost:8088/api/docs
 - 默认账号: admin / admin123
 
 ### 生产部署
@@ -377,5 +377,5 @@ DEEPSEEK_API_KEY=your-deepseek-api-key
 
 ### 前端 (.env)
 ```
-VITE_API_BASE_URL=http://localhost:8000/api/v1
+VITE_API_BASE_URL=http://localhost:8088/api/v1
 ```

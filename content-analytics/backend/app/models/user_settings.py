@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 from sqlalchemy import Column, String, ForeignKey, DateTime, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 
 from app.db.base import Base
 
@@ -26,4 +27,13 @@ class UserSettings(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # 关系
-    user = relationship("User", backref="settings")
+    user = relationship("User", backref=backref("settings", uselist=False))
+
+    def get_api_key(self) -> Optional[str]:
+        if self.ai_provider == "deepseek":
+            return self.deepseek_api_key
+        if self.ai_provider == "openai":
+            return self.openai_api_key
+        if self.ai_provider == "iflow":
+            return self.iflow_api_key
+        return None

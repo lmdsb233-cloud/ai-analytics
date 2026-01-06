@@ -23,8 +23,14 @@ export const useAnalysisStore = defineStore('analysis', () => {
 
   async function fetchAnalysis(id: string) {
     const res = await analysisApi.getAnalysis(id)
-    currentAnalysis.value = res.data
-    return res.data
+    const data = res.data
+    currentAnalysis.value = data
+    // 更新列表中的对应项
+    const idx = analyses.value.findIndex(a => a.id === data.id)
+    if (idx !== -1) {
+      analyses.value[idx] = data
+    }
+    return data
   }
 
   async function createAnalysis(datasetId: string, name?: string, config?: any) {
@@ -44,6 +50,14 @@ export const useAnalysisStore = defineStore('analysis', () => {
 
   async function triggerAI(analysisId: string) {
     await analysisApi.triggerAIAnalysis(analysisId)
+  }
+
+  async function stopAnalysis(analysisId: string) {
+    await analysisApi.stopAnalysis(analysisId)
+  }
+
+  async function deleteAnalysis(analysisId: string) {
+    await analysisApi.deleteAnalysis(analysisId)
   }
 
   async function fetchPost(postId: string) {
@@ -75,6 +89,8 @@ export const useAnalysisStore = defineStore('analysis', () => {
     createAnalysis,
     fetchResults,
     triggerAI,
+    stopAnalysis,
+    deleteAnalysis,
     fetchPost,
     fetchAIOutput
   }

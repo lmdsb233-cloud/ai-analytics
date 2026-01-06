@@ -10,17 +10,21 @@ class DataProcessor:
     # Excel列名映射
     COLUMN_MAPPING = {
         'data_id': 'data_id',
+        '标题': 'content_title',
         '发文时间': 'publish_time',
         '发文链接': 'publish_link',
         '内容形式': 'content_type',
         '发文类型': 'post_type',
         '素材来源': 'source',
         '款式信息': 'style_info',
+        # 兼容有/无斜杠的统计列命名
         '7天阅读/播放': 'read_7d',
+        '7天阅读播放': 'read_7d',
         '7天互动': 'interact_7d',
         '7天好物访问': 'visit_7d',
         '7天好物想要': 'want_7d',
         '14天阅读/播放': 'read_14d',
+        '14天阅读播放': 'read_14d',
         '14天互动': 'interact_14d',
         '14天好物访问': 'visit_14d',
         '14天好物想要': 'want_14d',
@@ -64,7 +68,7 @@ class DataProcessor:
     def handle_missing_values(self) -> 'DataProcessor':
         """处理缺失值"""
         # 字符串列用空字符串填充
-        string_cols = ['content_type', 'post_type', 'source', 'style_info', 'publish_link']
+        string_cols = ['content_title', 'content_type', 'post_type', 'source', 'style_info', 'publish_link']
         for col in string_cols:
             if col in self.df.columns:
                 self.df[col] = self.df[col].fillna('')

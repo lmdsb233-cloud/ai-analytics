@@ -22,3 +22,4 @@ class User(Base):
     analyses = relationship("Analysis", back_populates="user", cascade="all, delete-orphan")
     exports = relationship("Export", back_populates="user", cascade="all, delete-orphan")
     screenshot_analyses = relationship("ScreenshotAnalysis", back_populates="user", cascade="all, delete-orphan")
+    conversations = relationship("Conversation", back_populates="user", cascade="all, delete-orphan")

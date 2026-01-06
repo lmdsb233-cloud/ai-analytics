@@ -3,17 +3,17 @@ from threading import Thread
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 
 from app.db.session import get_db
 from app.models.user import User
 from app.models.dataset import Dataset
-from app.models.analysis import Analysis, AnalysisStatus, AnalysisResult
+from app.models.analysis import Analysis, AnalysisStatus, AnalysisResult, AIOutput
 from app.schemas.analysis import (
-    AnalysisCreate, 
-    AnalysisResponse, 
+    AnalysisCreate,
+    AnalysisResponse,
     AnalysisResultResponse,
     AnalysisDetailResponse
 )
@@ -24,6 +24,63 @@ from app.tasks.ai_tasks import run_ai_analysis_task, _run_ai_analysis
 from app.tasks.celery_app import is_celery_available
 
 router = APIRouter()
+
+
+def _resolve_ai_status(analysis: Analysis, total_results: int, ai_outputs: int) -> Optional[str]:
+    if analysis.status == AnalysisStatus.AI_PROCESSING:
+        return "processing"
+    if analysis.status != AnalysisStatus.COMPLETED:
+        return None
+    if total_results == 0 or ai_outputs == 0:
+        return "not_started"
+    if ai_outputs < total_results:
+        return "partial"
+    return "completed"
+
+
+async def _get_ai_counts(db: AsyncSession, analysis_ids: List[uuid.UUID]):
+    if not analysis_ids:
+        return {}, {}
+    total_rows = await db.execute(
+        select(
+            AnalysisResult.analysis_id,
+            func.count(AnalysisResult.id).label("total")
+        )
+        .where(AnalysisResult.analysis_id.in_(analysis_ids))
+        .group_by(AnalysisResult.analysis_id)
+    )
+    total_map = {row.analysis_id: row.total for row in total_rows}
+    ai_rows = await db.execute(
+        select(
+            AnalysisResult.analysis_id,
+            func.count(AIOutput.id).label("ai_count")
+        )
+        .join(AIOutput, AIOutput.analysis_result_id == AnalysisResult.id, isouter=True)
+        .where(AnalysisResult.analysis_id.in_(analysis_ids))
+        .group_by(AnalysisResult.analysis_id)
+    )
+    ai_map = {row.analysis_id: row.ai_count for row in ai_rows}
+    return total_map, ai_map
+
+
+def _to_analysis_response(
+    analysis: Analysis,
+    total_map: dict,
+    ai_map: dict
+) -> AnalysisResponse:
+    total = total_map.get(analysis.id, 0)
+    ai_count = ai_map.get(analysis.id, 0)
+    return AnalysisResponse(
+        id=analysis.id,
+        dataset_id=analysis.dataset_id,
+        name=analysis.name,
+        status=analysis.status,
+        progress=analysis.progress,
+        ai_status=_resolve_ai_status(analysis, total, ai_count),
+        error_message=analysis.error_message,
+        created_at=analysis.created_at,
+        completed_at=analysis.completed_at
+    )
 
 
 @router.post("", response_model=ResponseModel[AnalysisResponse])
@@ -85,6 +142,11 @@ async def list_analyses(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    if page < 1 or page_size < 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="分页参数不合法"
+        )
     query = select(Analysis).where(Analysis.user_id == current_user.id)
     
     if dataset_id:
@@ -97,8 +159,10 @@ async def list_analyses(
         .limit(page_size)
     )
     analyses = result.scalars().all()
-    
-    return ResponseModel(data=analyses)
+    analysis_ids = [a.id for a in analyses]
+    total_map, ai_map = await _get_ai_counts(db, analysis_ids)
+    response_data = [_to_analysis_response(a, total_map, ai_map) for a in analyses]
+    return ResponseModel(data=response_data)
 
 
 @router.get("/{analysis_id}", response_model=ResponseModel[AnalysisResponse])
@@ -121,7 +185,8 @@ async def get_analysis(
             detail="分析任务不存在"
         )
     
-    return ResponseModel(data=analysis)
+    total_map, ai_map = await _get_ai_counts(db, [analysis.id])
+    return ResponseModel(data=_to_analysis_response(analysis, total_map, ai_map))
 
 
 @router.get("/{analysis_id}/results", response_model=ResponseModel[List[AnalysisResultResponse]])
@@ -133,6 +198,11 @@ async def get_analysis_results(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    if page < 1 or page_size < 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="分页参数不合法"
+        )
     # 验证分析任务存在且属于当前用户
     result = await db.execute(
         select(Analysis).where(
@@ -155,9 +225,11 @@ async def get_analysis_results(
         query = query.where(AnalysisResult.performance == performance)
     
     offset = (page - 1) * page_size
+    from app.models.post import Post
     result = await db.execute(
         query.options(selectinload(AnalysisResult.post))
-        .order_by(AnalysisResult.created_at.desc(), AnalysisResult.id)
+        .join(Post, AnalysisResult.post_id == Post.id)
+        .order_by(Post.created_at.asc())  # 按原始数据集顺序排序
         .offset(offset)
         .limit(page_size)
     )
@@ -207,8 +279,10 @@ async def trigger_ai_analysis(
             detail="分析任务尚未完成，无法触发AI分析"
         )
     
-    # 更新状态
+    # 更新状态，并重置进度，避免继承非AI阶段的100%
     analysis.status = AnalysisStatus.AI_PROCESSING
+    analysis.progress = "0%"
+    analysis.error_message = None
     await db.commit()
     
     # 触发AI分析异步任务
@@ -230,3 +304,66 @@ async def trigger_ai_analysis(
         Thread(target=run_ai_thread, args=(str(analysis.id),), daemon=True).start()
     
     return ResponseModel(message="AI分析任务已触发")
+
+
+@router.post("/{analysis_id}/stop", response_model=ResponseModel)
+async def stop_analysis(
+    analysis_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """停止分析任务"""
+    result = await db.execute(
+        select(Analysis).where(
+            Analysis.id == analysis_id,
+            Analysis.user_id == current_user.id
+        )
+    )
+    analysis = result.scalar_one_or_none()
+    
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="分析任务不存在"
+        )
+    
+    # 只能停止正在运行的任务
+    if analysis.status not in [AnalysisStatus.ANALYZING, AnalysisStatus.AI_PROCESSING]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="只能停止正在运行的任务"
+        )
+    
+    # 设置状态为失败（停止）
+    analysis.status = AnalysisStatus.FAILED
+    analysis.error_message = "用户手动停止"
+    await db.commit()
+    
+    return ResponseModel(message="分析任务已停止")
+
+
+@router.delete("/{analysis_id}", response_model=ResponseModel)
+async def delete_analysis(
+    analysis_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """删除分析任务"""
+    result = await db.execute(
+        select(Analysis).where(
+            Analysis.id == analysis_id,
+            Analysis.user_id == current_user.id
+        )
+    )
+    analysis = result.scalar_one_or_none()
+    
+    if not analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="分析任务不存在"
+        )
+    
+    await db.delete(analysis)
+    await db.commit()
+    
+    return ResponseModel(message="分析任务已删除")

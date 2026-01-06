@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Text, Index
+from sqlalchemy import Column, String, Float, DateTime, ForeignKey, Text, Index, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.db.base import Base
@@ -36,6 +36,12 @@ class Post(Base):
     interact_14d = Column(Float, nullable=True)  # 14天互动
     visit_14d = Column(Float, nullable=True)     # 14天好物访问
     want_14d = Column(Float, nullable=True)      # 14天好物想要
+
+    # 补充的图文信息
+    content_title = Column(String(255), nullable=True)
+    content_text = Column(Text, nullable=True)
+    cover_image = Column(String(1000), nullable=True)
+    image_urls = Column(JSON, nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow)
 

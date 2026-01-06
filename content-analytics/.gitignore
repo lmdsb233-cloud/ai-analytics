@@ -52,3 +52,12 @@ htmlcov/
 # Build
 build/
 *.egg-info/
+
+# Codex/AI tools
+.codex/
+.local/
+
+# Test data files
+*.xlsx
+!backend/uploads/.gitkeep
+tmp-*.json

@@ -1,10 +1,13 @@
 import pandas as pd
 from sqlalchemy import select
+from urllib.parse import urlparse
 from app.tasks.celery_app import celery_app
-from app.db.session import create_thread_session_maker
+from app.db.session import async_session_maker, create_thread_session_maker
 from app.models.dataset import Dataset, DatasetStatus
 from app.models.post import Post
+from app.models.analysis import Analysis, AnalysisStatus, AnalysisResult
 from app.analysis.processor import DataProcessor
+from app.crawlers.poizon_fetcher import fetch_poizon_meta
 import asyncio
 
 
@@ -69,12 +72,70 @@ async def _parse_dataset_impl(db, dataset_id: str):
         processor.process()
         records = processor.to_records()
 
-        for record in records:
+        def _normalize_url(url: str) -> str:
+            if not url:
+                return ""
+            url = str(url).strip()
+            if not url:
+                return ""
+            if not url.startswith(("http://", "https://")):
+                return f"https://{url}"
+            return url
+
+        def _is_poizon(url: str) -> bool:
+            try:
+                host = urlparse(url).netloc.lower()
+            except Exception:
+                return False
+            return "poizon.com" in host or "dewu.com" in host
+
+        def _should_fetch(source: str | None, url: str) -> bool:
+            if not url or not _is_poizon(url):
+                return False
+            if not source:
+                return True
+            source_text = str(source).lower()
+            if "得物" in source_text or "poizon" in source_text or "dewu" in source_text:
+                return True
+            return False
+
+        total_records = len(records)
+        for idx, record in enumerate(records):
+            # 更新进度
+            dataset.progress = f"{idx+1}/{total_records}"
+            if idx % 5 == 0:  # 每5条提交一次进度
+                await db.commit()
+            
+            print(f"[dataset] Processing record {idx+1}/{total_records}")
+            content_title = record.get('content_title')
+            content_text = None
+            cover_image = None
+            image_urls = None
+
+            publish_link = record.get('publish_link')
+            if publish_link:
+                publish_link = _normalize_url(publish_link)
+            if publish_link:
+                try:
+                    if _should_fetch(record.get('source'), publish_link):
+                        print(f"[dataset] Fetching poizon link: {publish_link[:50]}...")
+                        meta = await fetch_poizon_meta(publish_link, timeout=20, use_playwright_fallback=True)
+                        # 得物链接：优先使用抓取的标题和描述（比Excel中的更准确）
+                        if meta.get("title"):
+                            content_title = meta.get("title")
+                        if meta.get("description"):
+                            content_text = meta.get("description")
+                        cover_image = meta.get("image") or cover_image
+                        image_urls = meta.get("image_urls") or image_urls
+                except Exception as e:
+                    print(f"[dataset] fetch link failed ({publish_link}): {e}")
+            # 外链抓取失败时仅跳过本条，继续入库
+
             post = Post(
                 dataset_id=dataset.id,
                 data_id=str(record.get('data_id', '')),
                 publish_time=record.get('publish_time'),
-                publish_link=record.get('publish_link'),
+                publish_link=publish_link or record.get('publish_link'),
                 content_type=record.get('content_type'),
                 post_type=record.get('post_type'),
                 source=record.get('source'),
@@ -86,17 +147,88 @@ async def _parse_dataset_impl(db, dataset_id: str):
                 read_14d=record.get('read_14d'),
                 interact_14d=record.get('interact_14d'),
                 visit_14d=record.get('visit_14d'),
-                want_14d=record.get('want_14d')
+                want_14d=record.get('want_14d'),
+                content_title=content_title,
+                content_text=content_text,
+                cover_image=cover_image,
+                image_urls=image_urls
             )
             db.add(post)
 
         dataset.status = DatasetStatus.COMPLETED
         dataset.row_count = len(records)
         await db.commit()
+        
+        # 自动创建分析任务
+        print(f"[dataset] Auto-creating analysis for dataset {dataset.id}...")
+        analysis = Analysis(
+            dataset_id=dataset.id,
+            user_id=dataset.user_id,
+            name=f"{dataset.name}的分析",
+            status=AnalysisStatus.ANALYZING
+        )
+        db.add(analysis)
+        await db.commit()
+        await db.refresh(analysis)
+        
+        # 获取所有posts并创建分析结果
+        posts_result = await db.execute(
+            select(Post).where(Post.dataset_id == dataset.id)
+        )
+        posts = posts_result.scalars().all()
+        
+        # 构建DataFrame用于初始化聚合器
+        from app.analysis.aggregator import AnalysisAggregator
+        
+        posts_data = []
+        for post in posts:
+            posts_data.append({
+                'data_id': post.data_id,
+                'publish_time': post.publish_time,
+                'content_type': post.content_type,
+                'post_type': post.post_type,
+                'read_7d': post.read_7d or 0,
+                'interact_7d': post.interact_7d or 0,
+                'visit_7d': post.visit_7d or 0,
+                'want_7d': post.want_7d or 0,
+                'read_14d': post.read_14d or 0,
+                'interact_14d': post.interact_14d or 0,
+                'visit_14d': post.visit_14d or 0,
+                'want_14d': post.want_14d or 0
+            })
+        
+        df = pd.DataFrame(posts_data)
+        aggregator = AnalysisAggregator(df).prepare()
+        
+        total_posts = len(posts)
+        for idx, post in enumerate(posts):
+            # 获取对应的DataFrame行
+            row = df[df['data_id'] == post.data_id].iloc[0] if not df[df['data_id'] == post.data_id].empty else None
+            if row is None:
+                continue
+            result_data = aggregator.analyze_single_post(row)
+            
+            analysis_result = AnalysisResult(
+                analysis_id=analysis.id,
+                post_id=post.id,
+                performance=result_data.get('performance'),
+                result_data=result_data
+            )
+            db.add(analysis_result)
+            
+            if idx % 10 == 0:
+                analysis.progress = f"{int((idx+1)/total_posts*100)}%"
+                await db.commit()
+        
+        analysis.status = AnalysisStatus.COMPLETED
+        analysis.progress = "100%"
+        await db.commit()
+        print(f"[dataset] Analysis {analysis.id} created and completed")
 
         return {
             "success": True,
             "row_count": len(records),
+            "analysis_id": str(analysis.id),
             "warnings": validation.get('warnings', [])
         }
 
@@ -117,3 +249,4 @@ async def _parse_dataset(dataset_id: str):
 def parse_dataset_task(self, dataset_id: str):
     """Celery任务: 解析数据集"""
     return run_async(_parse_dataset(dataset_id))
+

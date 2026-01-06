@@ -3,8 +3,8 @@
     <div class="page-header">
       <h1>分析结果 - {{ analysisStore.currentAnalysis?.name }}</h1>
       <div class="actions">
-        <el-tag :type="getStatusType(analysisStore.currentAnalysis?.status)">
-          {{ getStatusText(analysisStore.currentAnalysis?.status) }}
+        <el-tag v-if="analysisStore.currentAnalysis" :type="getStatusType(analysisStore.currentAnalysis)">
+          {{ getStatusText(analysisStore.currentAnalysis) }}
         </el-tag>
         <el-button type="primary" @click="handleExport">导出报告</el-button>
       </div>
@@ -98,26 +98,29 @@ const handleExport = async () => {
   }
 }
 
-const getStatusType = (status?: string) => {
-  const map: Record<string, string> = {
-    pending: 'info',
-    analyzing: 'warning',
-    ai_processing: 'warning',
-    completed: 'success',
-    failed: 'danger'
+const getStatusType = (analysis: NonNullable<typeof analysisStore.currentAnalysis>) => {
+  if (analysis.status === 'failed') return 'danger'
+  if (analysis.status === 'pending') return 'info'
+  if (analysis.status === 'analyzing' || analysis.status === 'ai_processing') return 'warning'
+  if (analysis.status === 'completed') {
+    if (analysis.ai_status === 'partial') return 'warning'
+    return 'success'
   }
-  return map[status || ''] || 'info'
+  return 'info'
 }
 
-const getStatusText = (status?: string) => {
-  const map: Record<string, string> = {
-    pending: '等待中',
-    analyzing: '分析中',
-    ai_processing: 'AI处理中',
-    completed: '已完成',
-    failed: '失败'
+const getStatusText = (analysis: NonNullable<typeof analysisStore.currentAnalysis>) => {
+  if (analysis.status === 'pending') return '等待中'
+  if (analysis.status === 'analyzing') return '分析中'
+  if (analysis.status === 'ai_processing') return 'AI处理中'
+  if (analysis.status === 'failed') return '失败'
+  if (analysis.status === 'completed') {
+    if (analysis.ai_status === 'completed') return 'AI分析完成'
+    if (analysis.ai_status === 'partial') return 'AI部分完成'
+    if (analysis.ai_status === 'processing') return 'AI处理中'
+    return '分析完成'
   }
-  return map[status || ''] || ''
+  return analysis.status
 }
 
 const getPerformanceType = (performance: string) => {

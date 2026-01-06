@@ -119,12 +119,13 @@ async def download_export(
             detail="导出文件不存在"
         )
 
+    format_value = getattr(export.format, "value", export.format)
     ext_map = {
-        ExportFormat.EXCEL: "xlsx",
-        ExportFormat.JSON: "json",
-        ExportFormat.PDF: "pdf",
+        "excel": "xlsx",
+        "json": "json",
+        "pdf": "pdf",
     }
-    filename = f"analysis_report.{ext_map.get(export.format, export.format.value)}"
+    filename = f"analysis_report.{ext_map.get(format_value, format_value)}"
     
     return FileResponse(
         path=export.file_path,
@@ -150,12 +151,14 @@ async def list_exports(
     
     export_list = []
     for exp in exports:
+        format_value = getattr(exp.format, "value", exp.format)
+        status_value = getattr(exp.status, "value", exp.status)
         export_list.append({
             "id": str(exp.id),
             "analysis_id": str(exp.analysis_id),
             "analysis_name": exp.analysis.name if exp.analysis else "未知",
-            "format": exp.format.value,
-            "status": exp.status.value,
+            "format": format_value,
+            "status": status_value,
             "error_message": exp.error_message,
             "created_at": exp.created_at.isoformat(),
             "completed_at": exp.completed_at.isoformat() if exp.completed_at else None
@@ -187,7 +190,7 @@ async def get_export_status(
     
     return ResponseModel(data={
         "id": str(export.id),
-        "status": export.status.value,
+        "status": getattr(export.status, "value", export.status),
         "error_message": export.error_message,
         "completed_at": export.completed_at.isoformat() if export.completed_at else None
     })

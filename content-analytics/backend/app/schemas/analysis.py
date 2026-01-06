@@ -16,6 +16,7 @@ class AnalysisResponse(BaseModel):
     name: Optional[str] = None
     status: str
     progress: str
+    ai_status: Optional[str] = None
     error_message: Optional[str] = None
     created_at: datetime
     completed_at: Optional[datetime] = None
@@ -60,6 +61,35 @@ class AIOutputResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AIOutputUpdate(BaseModel):
+    """更新 AI 输出的请求模型"""
+    summary: Optional[str] = None
+    strengths: Optional[List[str]] = None
+    weaknesses: Optional[List[str]] = None
+    suggestions: Optional[List[str]] = None
+
+
+class AIOutputHistoryResponse(BaseModel):
+    id: UUID
+    ai_output_id: UUID
+    analysis_result_id: UUID
+    user_id: UUID
+    action: str
+    summary: Optional[str] = None
+    strengths: Optional[List[str]] = None
+    weaknesses: Optional[List[str]] = None
+    suggestions: Optional[List[str]] = None
+    model_name: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AIOutputRollbackRequest(BaseModel):
+    history_id: UUID
 
 
 class AnalysisDetailResponse(BaseModel):
