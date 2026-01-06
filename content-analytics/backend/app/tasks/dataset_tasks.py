@@ -92,12 +92,8 @@ async def _parse_dataset_impl(db, dataset_id: str):
         def _should_fetch(source: str | None, url: str) -> bool:
             if not url or not _is_poizon(url):
                 return False
-            if not source:
-                return True
-            source_text = str(source).lower()
-            if "得物" in source_text or "poizon" in source_text or "dewu" in source_text:
-                return True
-            return False
+            # 只要链接域名属于得物/Poizon，就视为需要抓取
+            return True
 
         total_records = len(records)
         for idx, record in enumerate(records):
