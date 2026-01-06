@@ -1,4 +1,4 @@
 declare module 'element-plus/dist/locale/zh-cn.mjs' {
-  const zhCn: Record<string, unknown>
+  const zhCn: any
   export default zhCn
 }

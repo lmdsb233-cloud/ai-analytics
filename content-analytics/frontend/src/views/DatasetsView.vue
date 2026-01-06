@@ -227,7 +227,8 @@ const handleUpload = async () => {
   }
 }
 
-const handleViewAnalysis = async () => {
+const handleViewAnalysis = async (_dataset?: Dataset) => {
+  void _dataset
   router.push('/analyses')
 }
 
