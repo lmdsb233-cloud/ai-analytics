@@ -20,13 +20,17 @@ export interface ScreenshotAnalysisResponse {
 /**
  * 上传截图并分析
  */
-export function analyzeScreenshot(file: File) {
+export function analyzeScreenshot(file: File): Promise<ScreenshotAnalysisResponse> {
   const formData = new FormData()
   formData.append('file', file)
 
-  return request.post<ScreenshotAnalysisResponse>('/screenshots/analyze', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data'
+  return request.post<ScreenshotAnalysisResponse, ScreenshotAnalysisResponse>(
+    '/screenshots/analyze',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
     }
-  })
+  )
 }

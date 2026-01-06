@@ -66,6 +66,8 @@ import { useAnalysisStore } from '@/stores/analysis'
 import { exportsApi } from '@/api/exports'
 import type { AnalysisResult } from '@/types'
 
+type TagType = 'success' | 'warning' | 'info' | 'danger' | 'primary'
+
 const route = useRoute()
 const router = useRouter()
 const analysisStore = useAnalysisStore()
@@ -98,7 +100,7 @@ const handleExport = async () => {
   }
 }
 
-const getStatusType = (analysis: NonNullable<typeof analysisStore.currentAnalysis>) => {
+const getStatusType = (analysis: NonNullable<typeof analysisStore.currentAnalysis>): TagType => {
   if (analysis.status === 'failed') return 'danger'
   if (analysis.status === 'pending') return 'info'
   if (analysis.status === 'analyzing' || analysis.status === 'ai_processing') return 'warning'
@@ -123,10 +125,10 @@ const getStatusText = (analysis: NonNullable<typeof analysisStore.currentAnalysi
   return analysis.status
 }
 
-const getPerformanceType = (performance: string) => {
-  const map: Record<string, string> = {
+const getPerformanceType = (performance: string): TagType | undefined => {
+  const map: Record<string, TagType | undefined> = {
     '优秀': 'success',
-    '正常': '',
+    '正常': undefined,
     '偏低': 'warning',
     '较差': 'danger'
   }

@@ -1,5 +1,5 @@
 import axios from './index'
-import type { ApiResponse } from './index'
+import type { ApiResponse } from '@/types'
 
 export interface Conversation {
   id: string
@@ -129,4 +129,3 @@ export async function sendMessage(
       callbacks.onError?.(error)
     })
 }
-

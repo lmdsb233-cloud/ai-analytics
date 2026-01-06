@@ -104,7 +104,8 @@ const loginRules: FormRules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
-const validateConfirmPassword = (rule: any, value: any, callback: any) => {
+const validateConfirmPassword = (_rule: any, value: any, callback: any) => {
+  void _rule
   if (value !== registerForm.password) {
     callback(new Error('两次输入的密码不一致'))
   } else {

@@ -83,6 +83,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { exportsApi, type ExportRecord } from '@/api/exports'
 
+type TagType = 'success' | 'warning' | 'info' | 'danger' | 'primary'
+
 const loading = ref(false)
 const exports = ref<ExportRecord[]>([])
 const downloadingId = ref<string | null>(null)
@@ -103,8 +105,8 @@ const refreshList = () => {
   fetchExports()
 }
 
-const getStatusType = (status: string) => {
-  const map: Record<string, string> = {
+const getStatusType = (status: string): TagType => {
+  const map: Record<string, TagType> = {
     pending: 'warning',
     processing: 'info',
     completed: 'success',

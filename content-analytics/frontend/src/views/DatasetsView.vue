@@ -165,14 +165,11 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type UploadInstance, type UploadFile } from 'element-plus'
 import { Upload, FolderOpened, Check, Loading, InfoFilled, UploadFilled, Clock, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { useDatasetStore } from '@/stores/dataset'
-import { useAnalysisStore } from '@/stores/analysis'
 import type { Dataset } from '@/types'
 import dayjs from 'dayjs'
 
 const router = useRouter()
 const datasetStore = useDatasetStore()
-const analysisStore = useAnalysisStore()
-
 const completedCount = computed(() => datasetStore.datasets.filter(d => d.status === 'completed').length)
 const processingCount = computed(() => datasetStore.datasets.filter(d => d.status === 'processing' || d.status === 'pending').length)
 
@@ -230,7 +227,7 @@ const handleUpload = async () => {
   }
 }
 
-const handleViewAnalysis = async (dataset: Dataset) => {
+const handleViewAnalysis = async () => {
   router.push('/analyses')
 }
 
