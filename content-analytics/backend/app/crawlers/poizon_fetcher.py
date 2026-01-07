@@ -183,8 +183,14 @@ async def fetch_poizon_meta(url: str, timeout: int = 10, use_playwright_fallback
             tag = soup.find("meta", property=prop)
             return tag.get("content") if tag else None
 
+        def get_meta_name(name):
+            tag = soup.find("meta", attrs={"name": name})
+            return tag.get("content") if tag else None
+
         title = get_meta("og:title")
-        desc = get_meta("og:description")
+        if not title and soup.title:
+            title = soup.title.get_text(strip=True)
+        desc = get_meta("og:description") or get_meta_name("description")
         img = _normalize_image_url(get_meta("og:image"))
         images = _collect_images_from_html(html)
         if img and img not in images:
@@ -240,8 +246,8 @@ async def fetch_poizon_meta(url: str, timeout: int = 10, use_playwright_fallback
                         desc = content_info["description"]
                 if img and img not in images:
                     images.insert(0, img)
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"[poizon] playwright failed: {exc}")
 
     # 优先使用image_urls中的第一张完整图片作为封面（而不是og:image裁剪版）
     final_cover = images[0] if images else img

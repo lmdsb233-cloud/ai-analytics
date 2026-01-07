@@ -2,6 +2,8 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
     gcc \
@@ -13,6 +15,10 @@ COPY requirements.txt .
 
 # 安装Python依赖
 RUN pip install --no-cache-dir -r requirements.txt
+
+# 安装 Playwright 浏览器（抓取得物正文与图文用）
+RUN python -m playwright install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
 
 # 复制应用代码
 COPY . .
